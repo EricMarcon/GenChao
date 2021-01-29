@@ -1,0 +1,304 @@
+---
+title: "Estimateur de Chao généralisé"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r DoNotModify, include=FALSE}
+### Utilities. Do not modify.
+# Installation of packages if necessary
+InstallPackages <- function(Packages) {
+  InstallPackage <- function(Package) {
+    if (!Package %in% installed.packages()[, 1]) {
+      install.packages(Package, repos="https://cran.rstudio.com/")
+    }
+  }
+  invisible(sapply(Packages, InstallPackage))
+}
+
+# Basic packages
+InstallPackages(c("rmarkdown", "formatR", "kableExtra", "ragg"))
+library("kableExtra") # Mandatory to load css and more
+
+# Chunk font size hook: allows size='small' or any valid Latex font size in chunk options
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+```
+
+```{r Options, include=FALSE}
+### Customized options for this document
+# Add necessary packages here
+Packages <- c( "entropart", "vegan")
+# Install them
+InstallPackages(Packages)
+
+# knitr options
+knitr::opts_chunk$set(
+  cache=FALSE, # Cache chunk results
+  echo = TRUE, # Show R chunks
+  warning=FALSE, # Hide warnings
+  # Books only: figures with side captions
+  # fig.env='SCfigure', fig.asp=.75,
+  # Figure alignment and size
+  fig.align='center', out.width='80%',
+  # Graphic device
+  dev = "ragg_png",
+  # Code chunk format
+  tidy=TRUE, tidy.opts=list(blank=FALSE, width.cutoff=50),
+  size="scriptsize", knitr.graphics.auto_pdf = TRUE
+  )
+options(width=50)
+
+# ggplot style
+library("tidyverse")
+theme_set(theme_bw())
+theme_update(panel.background=element_rect(fill="transparent", colour=NA),
+             plot.background=element_rect(fill="transparent", colour=NA))
+knitr::opts_chunk$set(dev.args=list(bg="transparent"))
+
+# Random seed
+set.seed(973)
+```
+
+
+# Simulation d'une communauté
+
+Une communauté théorique correspondant à une distribution connue est simulée.
+Pour éviter les problèmes de sous-échantillonage, la communauté est de la taille maximale supportée par R.
+```{r, tidy=FALSE}
+library("entropart")
+richness <- 300
+Community <- rCommunity(
+  1, # Nombre de communautés simulées
+  size = .Machine$integer.max, # Taille
+  S = richness, # Nb d'espèces
+  Distribution = "lnorm", # Log-normale
+  sd = 2 # Ecart-type d'une forêt tropicale
+)
+```
+
+La courbe rang-abondance permet de visualiser la communauté.
+```{r}
+autoplot(Community, Distribution = "lnorm")
+```
+
+Toutes les espèces doivent avoir un effectif très supérieur à 2 (sinon, la communauté serait visiblement un échantillon partiel d'une communauté plus grande).
+```{r}
+min(Community)
+```
+
+# Autres données
+
+Pas utilisées ici.
+Dans ces inventaires forestiers, tous les arbres de plus de 10 cm de diamètre à hauteur de poitrine (1.3 m) sont inventoriés.
+
+## BCI
+
+50 ha de forêt tropicale à Barro Colorado Island, Panama.
+Aide avec `?BCI`.
+
+```{r}
+library("vegan")
+data(BCI)
+# Somme des 50 inventaires d'un hectare
+N_BCI <- as.AbdVector(colSums(BCI))
+autoplot(N_BCI, Distribution = "lnorm")
+```
+
+Presque toutes les espèces sont inventoriées.
+```{r}
+# Nombre d'espèces observées
+Richness(N_BCI, Correction = "None")
+# Estimateur de Chao
+Richness(N_BCI, Correction = "Chao1")
+```
+
+## Paracou
+
+Parcelle 6 de Paracou : 6.25 ha, inventaire de 2016.
+Les arbres sont localisés.
+```{r}
+load(file = "data/Paracou6.rda")
+# Comptage des individus par espèce
+N_Paracou <- as.AbdVector(tapply(Paracou6$x, Paracou6$marks$PointType, length))
+autoplot(N_Paracou, Distribution = "lnorm")
+```
+
+L'ajustement du modèle log-normal n'est pas bon parce que les données sont un échantillon de la communauté dont de nombreuses espèces manquent.
+Meilleure estimation de la richesse avec le Jackknife d'ordre 2.
+
+```{r}
+Richness(N_Paracou)
+```
+
+L'échantillonnage est trop insuffisant pour que l'estimateur de Chao soit utilisable.
+```{r}
+Richness(N_Paracou, Correction = "Chao1")
+```
+
+# Exploration
+
+## Tirage d'un échantillon
+
+Un inventaire de taille choisie est simulé par un tirage dans une loi multinomiale.
+```{r}
+# Taille de l'échantillon
+size <- 1000
+Sample <- rmultinom(1, size, Community)
+```
+
+L'échantillon obtenu contient beaucoup moins d'espèces et beaucoup de singletons et doubletons.
+```{r}
+autoplot(as.AbdVector(Sample))
+```
+
+## Application de l'estimateur
+
+Estimation du nombre d'espèces non observées.
+```{r}
+GenChaoS0 <- function(f, k, kprime) {
+  # Abondances représentées
+  abd <- f[, 1]
+  # Abondance totale
+  n <- sum(f[, 1]*f[, 2])
+  # Estimateur des espèces non observées
+  # en log pour éviter les dépassements de capacité
+  log_S0 <- k/(k - kprime)*(log(f[which(abd == kprime), 2]) - lchoose(n, kprime)) +
+             kprime/(k - kprime)*(lchoose(n, k) - log(f[which(abd == k), 2]))
+  # Résultat
+  return(exp(log_S0))
+}
+```
+
+Estimation pour $(k; k')=(2; 1)$.
+```{r}
+# Fréquence des abondances : tableau des f.
+f <- AbdFreqCount(Sample)
+# Estimation de Chao1
+GenChaoS0(f, k=2, kprime=1) + sum(f[, 2])
+# Vérification (fonction Richness du package entropart)
+Richness(Sample, Correction="Chao1")
+```
+## Test de toutes les combinaisons de k et k'
+
+On fixe $k > k'$ sans perte de généralité.
+Toutes les paires de k et k' sont créées.
+
+```{r}
+# Toutes les paires k, k'
+kkprime <- expand.grid(f[, 1], f[, 1])
+# Seulement celles telles que k > k'
+kkprime <- kkprime[kkprime[, 1] > kkprime[, 2], ]
+colnames(kkprime) <- c("k", "kprime")
+head(kkprime)
+```
+
+L'estimateur est appliqué avec toutes les paires.
+La plus grande valeur est affichée.
+
+```{r}
+# Estimation pour toutes les paires
+# Ajout d'une colonne pour recevoir les estimations
+kkprime$S0 <- 0
+for (i in 1:nrow(kkprime)) {
+  kkprime$S0[i] <- GenChaoS0(f, k=kkprime[i, 1], kprime=kkprime[i, 2])
+}
+# Valeur max
+maxestkkprime <- kkprime[which.max((kkprime$S0)), ]
+# Tableau bien formaté
+knitr::kable(maxestkkprime)
+```
+
+L'estimateur est représenté en fonction de k et k'.
+
+```{r}
+# Graphique
+k_values <- 10 # nrow(f)
+S0_3Dplot <- matrix(nrow=k_values, ncol=k_values)
+for (i in 1:k_values) {
+  for (j in 1:k_values) {
+    found <- (kkprime[, 1] == f[i, 1]) & (kkprime[, 2] == f[j, 1])
+    if (any(found)) {
+      S0_3Dplot[i, j] <- kkprime[found, 3]
+    } else {
+      S0_3Dplot[i, j] <- NA
+    }
+  }
+}
+
+persp(f[1:k_values, 1], f[1:k_values, 1], S0_3Dplot, 
+      theta=100, phi=30, 
+      xlab="k", ylab="k'", zlab="S0")
+```
+
+Manifestement, le biais augmente systématiquement pour toutes les valeurs de $(k; k')$ différentes de celles de l'estimateur de Chao original.
+De temps à autres, une valeur aberrante apparaît.
+
+# Evaluation d'un estimateur
+
+La technique dite de Monte-Carlo consiste à simuler un grand nombre d'échantillons à d'une communauté connue et leur appliquer l'estimateur.
+Toutes les valeurs estimées fournissent une estimation de la distribution de probabilité des valeurs de l'estimateur.
+Leur moyenne empirique estime l'espérance de l'estimateur, et la variance empirique de même.
+
+L'estimation pose deux problèmes :
+
+- le biais : la différence entre la valeur réelle et la valeur estimée doit être aussi faible que possible;
+- la variance de l'estimateur : l'estimation doit être aussi peu variable que possible.
+
+On montre que l'espérance de l'erreur d'estimation (plus précisément, la racine carré de l'espérance de son carré : RMSE) est la racine carrée de la somme du carré du biais et de la variance.
+Cette quantité est souvent normalisée par la valeur réelle pour obtenir une erreur relative.
+
+La version complète de la fonction prend comme arguments le vecteur des abondances et les valeurs de k et k".
+Elle retourne l'estimation du nombre d'espèces (y compris les espèces observées).
+
+```{r}
+GenChao <- function(N, k, kprime) {
+  # Fréquence des abondances : tableau des f.
+  f <- AbdFreqCount(N)
+  # Abondances représentées
+  abd <- f[, 1]
+  # Vérification de l'existence de f_k et f_kprime
+  if ((!k %in% abd) | (!kprime %in% abd))
+    return(NA)
+  # Abondance totale
+  n <- sum(N)
+  # Estimateur des espèces non observées
+  # en log pour éviter les dépassements de capacité
+  log_S0 <- k/(k - kprime)*(log(f[which(abd == kprime), 2]) - lchoose(n, kprime)) +
+             kprime/(k - kprime)*(lchoose(n, k) - log(f[which(abd == k), 2]))
+  # Résultat, y compris le nombre d'espèces observées
+  return(exp(log_S0) + as.numeric(sum(f[, 2])))
+}
+```
+
+En pratique, il faut simuler un grand nombre de communautés.
+
+```{r}
+nSimulations <- 1000
+Samples <- rmultinom(nSimulations, size, Community)
+# Choix de k et k'
+k <- maxestkkprime[1, 1]
+kprime <- maxestkkprime[1, 2]
+estimates <- apply(Samples, 2, GenChao, k=k, kprime=kprime)
+# Biais
+(bias <- abs(richness - mean(estimates, na.rm=TRUE)))
+variance <- var(estimates, na.rm=TRUE)
+(RRMSE <- sqrt(bias^2 + variance))/richness
+# identique à 
+sqrt(mean((richness - estimates)^2, na.rm=TRUE))/richness
+```
+
+La distribution de l'estimateur peut être représentée graphiquement.
+Les pointillés correspondent à 95% des estimations.
+```{r}
+estimates_noNA <- estimates[!is.na(estimates)]
+autoplot(as.SimTest(richness, estimates_noNA), main="Distribution de l'estimateur") +
+  xlim(min=min(estimates_noNA), max=max(1.1*richness, min(2*richness, max(estimates_noNA))))
+```
