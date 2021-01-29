@@ -9,5 +9,6 @@ Depends:
   R (>= 3.5.0)
 Imports:
   entropart,
+  tidyverse,
   vegan
 License: GPL-3
