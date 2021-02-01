@@ -186,6 +186,7 @@ GenChaoS0(f, k=2, kprime=1) + sum(f[, 2])
 # Vérification (fonction Richness du package entropart)
 Richness(Sample, Correction="Chao1")
 ```
+
 ## Test de toutes les combinaisons de k et k'
 
 On fixe $k > k'$ sans perte de généralité.
@@ -213,7 +214,11 @@ for (i in 1:nrow(kkprime)) {
 # Valeur max
 maxestkkprime <- kkprime[which.max((kkprime$S0)), ]
 # Tableau bien formaté
-knitr::kable(maxestkkprime)
+library(kableExtra)
+maxestkkprime %>%
+  as_tibble() %>% 
+  kbl() %>%
+  kable_styling()
 ```
 
 L'estimateur est représenté en fonction de k et k'.
