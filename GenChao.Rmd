@@ -1,11 +1,11 @@
 ---
 title: "Estimateur de Chao généralisé"
 output:
+  pdf_document:
+    toc: yes
   html_document:
     toc: yes
     toc_float: yes
-  pdf_document:
-    toc: yes
 ---
 
 ```{r DoNotModify, include=FALSE}
@@ -217,8 +217,9 @@ maxestkkprime <- kkprime[which.max((kkprime$S0)), ]
 library(kableExtra)
 maxestkkprime %>%
   as_tibble() %>% 
-  kbl() %>%
-  kable_styling()
+  kbl() 
+#%>%
+#  kable_styling()
 ```
 
 L'estimateur est représenté en fonction de k et k'.
