@@ -20,7 +20,7 @@ jobs:
           options(pkgType = "binary")
           options(install.packages.check.source = "no")
           install.packages(c("remotes", "tinytex", "rmarkdown", "formatR", "kableExtra", "ragg"))
-          tinytex::install_tinytex(extra_packages="float.sty")
+          tinytex::install_tinytex()
           remotes::install_deps(dependencies = TRUE)
         shell: Rscript {0}
       - name: Render Rmarkdown files
