@@ -1,11 +1,11 @@
 ---
 title: "Estimateur de Chao généralisé"
 output:
-  pdf_document:
-    toc: yes
   html_document:
     toc: yes
     toc_float: yes
+  pdf_document:
+    toc: yes
 ---
 
 ```{r DoNotModify, include=FALSE}
@@ -215,11 +215,17 @@ for (i in 1:nrow(kkprime)) {
 maxestkkprime <- kkprime[which.max((kkprime$S0)), ]
 # Tableau bien formaté
 library(kableExtra)
+outputFormat <- knitr:::pandoc_to()
 maxestkkprime %>%
   as_tibble() %>% 
-  kbl() 
-#%>%
-#  kable_styling()
+  kbl() ->
+  tableau
+if (outputFormat == 'html') {
+  tableau %>% kable_styling()
+} else {
+  # Erreur GH Actions avec tinytex + kable_styling
+  tableau
+}
 ```
 
 L'estimateur est représenté en fonction de k et k'.
